@@ -1,0 +1,161 @@
+\documentclass{article} \include{verbatim}
+
+\begin{document}
+\title{Introduction}
+
+Recusive resolvers play an important role in the DNS hierarchy. They
+are primarily responsible for resolving dns requests from stub
+resolvers and caching those responses. The dns complexity is hidden
+away from the end user in a way that the recursive resolver processes
+the query, and returns the responses to the user after caching the
+responses based on its caching policy.
+
+However, there are multiple factors under the boilerplate which have
+been overlooked considering the relative advantages of the resolver
+cache. We choose to highlight one of these problems and hope that the
+community takes an active interest.
+
+The design of a recursive resolver primarily consists of a query
+resolution mechanism, cached or uncached, and returning the
+response. A resolver's performance is significantly dependent on its
+caching engine behavior and the hit rate it acheives out of it, but in
+the event of a cache miss, a resolver has to query the root, follow
+the delegation and send multiple additional queries to answer the
+original query. These cache miss queries however trivial at any
+resolver can have a huge impact on a large DNS provider as we will see
+further described as a toy scenario in this document. Not to mention
+the impact on the end user, which sees a much higher latency than
+observed at the resolver, which typically ranges from 300-400 msec
+% https://developers.google.com/speed/public-dns/docs/performance
+
+For this particular document, we describe the behavior of a caching
+recursive resolver, with an average query rate of 10000 requests per
+second. Given this resolver have a good(stellar ?) caching performance
+and most of the queries sent to this resolver will be addressed by the
+cache, we assume a query miss rate of 5-10\%. This would be, on an
+average, atleast 1000 lookups per second, for which the gtld servers
+will be queried, the delegation chains would be received and responses
+will be constructed or copied based on the specific implementation.
+    
+Given the fact that 1000 lookups per second may not prove to be that
+bad on the backend dns infrastructure, the total number of these cache
+misses, assuming the total number of recursive resolvers to be
+400,000-500,000, the root/gtld servers will receive about 400 million
+queries per second around the world. This number, even spread around
+the world, is significant enough for any dns provider which services
+request around the whole world. With a simple change in the resolver's
+behavior, this number can be brought down not only improving the end
+user latency, but also reducing global query load.
+
+\title{Problem Description}
+
+When a recursive resolver gets a query, for which it has no prior
+record, the resolver starts from scratch, it sends the query to the
+root, unless it already has the records of the domains' tld. Suppose,
+the tld is com and the resolver, already knows the nameservers
+responsible for delegating .com. Now, the resolver has a choice, among
+the n nameservers, which resolve the .com tld. Specifically pertaining
+to the same, the original RFC 1035 quotes
+
+``The key algorithm uses the state information of the request to
+select the next name server address to query, and also computes a
+timeout which will cause the next action should a response not
+arrive''
+
+From here onwards, we shall call this algorithm, the server selection
+algorithm, which chooses a server to send the query to and follow the
+delegation henceforth. At any given time, a recursive resolver has a
+choice in which nameservers among multiple to query. Being more
+aggressive than a stub, it can also send parallel queries to each
+nameserver, or to the one it thinks will reply the fastest or to the
+one it hasn't tried in quite a while. Similar decisions like these
+have been basically left open to the implementations to decide and
+have not received the enough attention, which can impact the dns
+backend infrastructure's performance significantly.
+
+Choosing the right authoritative server to query can use multiple
+factors, some of which may include authoritative server RTT,
+distributing queries across various authoritative servers, parallel
+queries and server capabilities.  Moreover, there exists certain
+constraints, related to performance, amount of state in resolver,
+computationally inexpensive, attacks, % server server locking,
+and robustness, which can advocate a certain class of algorithms than
+the rest.
+
+\begin{comment}
+1. What does a recursive resolver do ?  2. DNS recursive resolvers in
+the wild 3. Cache misses behavior
+\end{comment}
+
+\title{Assumptions} 
+
+We discuss a simple set of assumptions, we believe
+hold true in the real world, and provide us with a framework for some
+back of the envelope calculations.
+
+\begin{itemize}
+\item We assume, typical rtts between resolvers and authoritative
+  nameservers lie anywhere from 10 ms to 500 ms. Rtts under 10 ms
+  means the two entities are possibly colocated, and hence,
+  performance wise is the best available choice. RTTs above 500 ms, if
+  no other choice, are naturally bad. So, we focus on the interval
+  where the resolver and authoritative server are separated by an
+  average rtt of 10 - 500 ms.
+
+\item We also believe for the most part, RTTs tend to stay stable, and
+  not change very much, except for two kinds of variations:
+  infinitesimal, where RTTs spike impulsively and return back to the
+  original rtt, and long term, which means, lasting atleast couple of
+  hours. On all other cases, RTTs pretty much remain stable.
+
+\end{itemize}
+
+For the rest of this document, we assume that the resolver is making
+a choice among n servers, this can be anywhere in the hierarchy, 
+at the root, or the com/net gtld and further down, although, the maximum
+number to choose from is available at these two levels.
+
+
+\title{Recursive resolver algorithms implementations} This section
+takes a brief look at the available server selection algorithms, which
+have been in use for a considerable amount of time in major dns
+resolver implementations.  One of the implementations chose to create
+a band of k ms and randomly pick one of the authoritative server among
+the choices in band; this band is reinitialized every \delta minutes
+to look if any new servers have come up, or gone down. Once the
+nameserver is out of the k ms bound, it will be re probed after the
+\delta minutes interval has passed .  The k is chosen to be about 400
+ms.
+
+Another one of the popular implementations uses an exponentially
+weighted moving average for the rtt's. So, as the resolver gets new
+rtts, it weights them with the historical rtt, and comes up with a new
+number, on the basis of which, it decides which authoritative server
+to send the query to. It also decays the rtt by a fixed percentage,
+effectively reducing the rtt for the authoritative server, not used in
+the current query. Thus, all servers are retried based on the query
+rate at the resolver, and the percentage reduction in the rtt.  This
+happens in a timely manner, as higher the query rate, the more
+aggressively, decaying policy decreases the actual rtt.
+
+These two policies are used by the major resolver implementiations
+across the world.  In this document, we describe a set of ideas, which
+take a different approach to the problem and propose some guidelines
+based on which, new server selection algorithms can be designed.
+
+\title{Present Algorithm Fallacies} 
+
+We start from assthree simple server selection algorithms:
+\begin{itemize}
+\item Choose one server, and keep using that one
+\item Choose a server randomly among all the given servers
+\item Choose a round robbin server selection algorithm
+
+% Scenarios description
+% Evaluation
+% Conclusions
+
+
+\end{document}
+
+
